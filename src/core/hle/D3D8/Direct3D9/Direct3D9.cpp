@@ -313,6 +313,8 @@ g_EmuCDPD = {0};
     XB_MACRO(xbox::hresult_xt,            WINAPI,     Direct3D_CreateDevice_4,           (xbox::X_D3DPRESENT_PARAMETERS*)                                                    );  \
     XB_MACRO(xbox::void_xt,               WINAPI,     Lock2DSurface,                     (xbox::X_D3DPixelContainer*, D3DCUBEMAP_FACES, xbox::uint_xt, D3DLOCKED_RECT*, RECT*, xbox::dword_xt) );  \
     XB_MACRO(xbox::void_xt,               WINAPI,     Lock3DSurface,                     (xbox::X_D3DPixelContainer*, xbox::uint_xt, D3DLOCKED_BOX*, D3DBOX*, xbox::dword_xt)                  );  \
+	XB_MACRO(xbox::void_xt,				  WINAPI,     D3D_LazySetState,                  ()          ); \
+	XB_MACRO(PVOID*,                      WINAPI,     D3D_MakeRequestedSpace_8,          (int, int) ); \
 
 XB_TRAMPOLINES(XB_trampoline_declare);
 
@@ -4920,17 +4922,7 @@ xbox::void_xt WINAPI xbox::EMUPATCH(D3DDevice_SetVertexDataColor)
 // ******************************************************************
 // * patch: D3DDevice_End
 // ******************************************************************
-xbox::void_xt WINAPI xbox::EMUPATCH(D3DDevice_End)()
-{
-	LOG_FUNC();
 
-    if(g_InlineVertexBuffer_TableOffset > 0)
-        EmuFlushIVB();
-
-    // TODO: Should technically clean this up at some point..but on XP doesnt matter much
-//    g_VMManager.Deallocate((VAddr)g_InlineVertexBuffer_pData);
-//    g_VMManager.Deallocate((VAddr)g_InlineVertexBuffer_Table);
-}
 
 // ******************************************************************
 // * patch: D3DDevice_RunPushBuffer
@@ -7084,8 +7076,8 @@ IDirect3DBaseTexture* CxbxConvertXboxSurfaceToHostTexture(xbox::X_D3DBaseTexture
 		return nullptr;
 	}
 
-	IDirect3DTexture* pNewHostTexture = nullptr;
-	auto hRet = pHostSurface->GetContainer(__uuidof(IDirect3DTexture9), (void**)&pNewHostTexture);
+	IDirect3DBaseTexture* pNewHostTexture = nullptr;
+	auto hRet = pHostSurface->GetContainer(IID_PPV_ARGS(&pNewHostTexture));
     DEBUG_D3DRESULT(hRet, "pHostSurface->GetContainer");
 
 	if (FAILED(hRet)) {
@@ -7093,7 +7085,7 @@ IDirect3DBaseTexture* CxbxConvertXboxSurfaceToHostTexture(xbox::X_D3DBaseTexture
 		return nullptr;
 	}
 
-	return (IDirect3DBaseTexture*)pNewHostTexture; // return it as a base texture
+	return pNewHostTexture; // return it as a base texture
 }
 
 void EmuUpdateActiveTextureStages()
@@ -7119,6 +7111,7 @@ void EmuUpdateActiveTextureStages()
 				pHostBaseTexture = CxbxConvertXboxSurfaceToHostTexture(pBaseTexture);
 				// Release this texture (after SetTexture) when we succeeded in creating it :
 				bNeedRelease = pHostBaseTexture != nullptr;
+				D3DPERF_SetMarker(D3DCOLOR_RGBA(0, 255, 0, 255), L"SetTexture on surface");
 				break;
 			default:
 				LOG_TEST_CASE("ActiveTexture set to an unhandled resource type!");
@@ -7793,6 +7786,14 @@ xbox::void_xt WINAPI xbox::EMUPATCH(D3DDevice_SetRenderTarget)
 	IDirect3DSurface *pHostDepthStencil = nullptr;
 
 	XB_TRMP(D3DDevice_SetRenderTarget)(pRenderTarget, pNewZStencil);
+
+	auto width = GetPixelContainerWidth(pRenderTarget);
+	auto height = GetPixelContainerHeight(pRenderTarget);
+	auto format = GetXboxPixelContainerFormat(pRenderTarget);
+	if (width == 640 && height == 480)
+	{
+		int i = 0;
+	}
 
 	// In Xbox titles, CreateDevice calls SetRenderTarget for the back buffer
 	// We can use this to determine the Xbox backbuffer surface for later use!
@@ -8823,4 +8824,65 @@ xbox::void_xt WINAPI xbox::EMUPATCH(D3DDevice_SetPixelShaderConstant_4)
 
         hRet = D3D_OK;
     }
+}
+
+static bool isRecording = false;
+std::vector<uint8_t> pushbuffer;
+PVOID origPtr[2];
+
+xbox::void_xt WINAPI xbox::EMUPATCH(D3D_LazySetState)()
+{
+	XB_TRMP(D3D_LazySetState)();
+
+	isRecording = true;
+	pushbuffer.clear();
+
+	auto state = g_SymbolAddresses.find("D3DDEVICE");
+    if (state != g_SymbolAddresses.end()) {
+        // Force reallocation next time
+		void** ptr = *reinterpret_cast<void***>(state->second);
+		origPtr[0] = std::exchange(ptr[0], nullptr);
+		origPtr[1] = std::exchange(ptr[1], nullptr);
+    }
+}
+
+PVOID* WINAPI xbox::EMUPATCH(D3D_MakeRequestedSpace_8)( int unk1, int unk2 )
+{
+	if (isRecording) {
+		auto size = pushbuffer.size();
+		pushbuffer.resize(size + unk1);
+		auto state = g_SymbolAddresses.find("D3DDEVICE");
+		if (state != g_SymbolAddresses.end()) {
+			void** ptr = *reinterpret_cast<void***>(state->second);
+			ptr[0] = pushbuffer.data() + size;
+			ptr[1] = pushbuffer.data() + size + unk1;
+		}
+	}
+
+	return XB_TRMP(D3D_MakeRequestedSpace_8)(unk1, unk2);
+}
+
+xbox::void_xt WINAPI xbox::EMUPATCH(D3DDevice_End)()
+{
+	LOG_FUNC();
+
+    if(g_InlineVertexBuffer_TableOffset > 0)
+        EmuFlushIVB();
+
+	if (std::exchange(isRecording, false)) {
+		auto state = g_SymbolAddresses.find("D3DDEVICE");
+		if (state != g_SymbolAddresses.end()) {
+			void** ptr = *reinterpret_cast<void***>(state->second);
+
+			EmuExecutePushBufferRaw(pushbuffer.data(), (uintptr_t)ptr[0] - (uintptr_t)pushbuffer.data());
+
+			ptr[0] = origPtr[0];
+			ptr[1] = origPtr[1];
+		}
+		
+	}
+
+    // TODO: Should technically clean this up at some point..but on XP doesnt matter much
+//    g_VMManager.Deallocate((VAddr)g_InlineVertexBuffer_pData);
+//    g_VMManager.Deallocate((VAddr)g_InlineVertexBuffer_Table);
 }

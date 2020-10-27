@@ -155,7 +155,7 @@ std::map<const std::string, const xbox_patch_t> g_PatchTable = {
 	PATCH_ENTRY("D3DDevice_SetTexture_4", xbox::EMUPATCH(D3DDevice_SetTexture_4), PATCH_HLE_D3D),
 	PATCH_ENTRY("D3DDevice_SetTransform", xbox::EMUPATCH(D3DDevice_SetTransform), PATCH_HLE_D3D),
 	PATCH_ENTRY("D3DDevice_SetTransform_0", xbox::EMUPATCH(D3DDevice_SetTransform_0), PATCH_HLE_D3D),
-	PATCH_ENTRY("D3DDevice_SetVertexData2f", xbox::EMUPATCH(D3DDevice_SetVertexData2f), PATCH_HLE_D3D),
+	//PATCH_ENTRY("D3DDevice_SetVertexData2f", xbox::EMUPATCH(D3DDevice_SetVertexData2f), PATCH_HLE_D3D),
 	PATCH_ENTRY("D3DDevice_SetVertexData2s", xbox::EMUPATCH(D3DDevice_SetVertexData2s), PATCH_HLE_D3D),
 	PATCH_ENTRY("D3DDevice_SetVertexData4f", xbox::EMUPATCH(D3DDevice_SetVertexData4f), PATCH_HLE_D3D),
 	PATCH_ENTRY("D3DDevice_SetVertexData4f_16", xbox::EMUPATCH(D3DDevice_SetVertexData4f_16), PATCH_HLE_D3D),
@@ -191,6 +191,8 @@ std::map<const std::string, const xbox_patch_t> g_PatchTable = {
 	PATCH_ENTRY("Direct3D_CreateDevice_4", xbox::EMUPATCH(Direct3D_CreateDevice_4), PATCH_HLE_D3D),
 	PATCH_ENTRY("Lock2DSurface", xbox::EMUPATCH(Lock2DSurface), PATCH_HLE_D3D),
 	PATCH_ENTRY("Lock3DSurface", xbox::EMUPATCH(Lock3DSurface), PATCH_HLE_D3D),
+	PATCH_ENTRY("D3D_LazySetState", xbox::EMUPATCH(D3D_LazySetState), PATCH_HLE_D3D),
+	PATCH_ENTRY("D3D_MakeRequestedSpace_8", xbox::EMUPATCH(D3D_MakeRequestedSpace_8), PATCH_HLE_D3D),
 
 	// DSOUND
 	PATCH_ENTRY("CDirectSound3DCalculator_Calculate3D", xbox::EMUPATCH(CDirectSound3DCalculator_Calculate3D), PATCH_HLE_DSOUND),

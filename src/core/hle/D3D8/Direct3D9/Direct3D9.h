@@ -2168,6 +2168,9 @@ xbox::void_xt WINAPI EMUPATCH(D3DDevice_GetMaterial)
 	X_D3DMATERIAL8* pMaterial
 );
 
+xbox::void_xt WINAPI EMUPATCH(D3D_LazySetState)();
+PVOID* WINAPI EMUPATCH(D3D_MakeRequestedSpace_8)( int unk1, int unk2 );
+
 } // end of namespace xbox
 
 #endif
