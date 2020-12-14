@@ -992,25 +992,25 @@ void CxbxGetPixelContainerMeasures
 	xbox::X_D3DPixelContainer *pPixelContainer,
 	DWORD dwMipMapLevel,
 	UINT *pWidth,
-	UINT *pHeight,
-	UINT *pDepth,
-	UINT *pRowPitch,
-	UINT *pSlicePitch
+	UINT *pHeight = nullptr,
+	UINT *pDepth = nullptr,
+	UINT *pRowPitch = nullptr,
+	UINT *pSlicePitch = nullptr
 );
 
 size_t GetXboxResourceSize(xbox::X_D3DResource* pXboxResource)
 {
 	// TODO: Smart size calculation based around format of resource
 	if (IsResourceAPixelContainer(pXboxResource)) {
-		unsigned int Width, Height, Depth, RowPitch, SlicePitch;
+		UINT Depth, SlicePitch;
 		// TODO : Accumulate all mipmap levels!!!
 		CxbxGetPixelContainerMeasures(
 			(xbox::X_D3DPixelContainer*)pXboxResource,
 			0, // dwMipMapLevel
-			&Width,
-			&Height,
+			nullptr,
+			nullptr,
 			&Depth,
-			&RowPitch,
+			nullptr,
 			&SlicePitch
 		);
 
@@ -1368,40 +1368,48 @@ void CxbxGetPixelContainerMeasures
 	// TODO : Add X_D3DCUBEMAP_FACES argument
 	DWORD dwMipMapLevel, // unused - TODO : Use
 	UINT *pWidth,
-	UINT *pHeight,
-	UINT *pDepth,
-	UINT *pRowPitch,
-	UINT *pSlicePitch
+	UINT *pHeight /*= nullptr*/,
+	UINT *pDepth /*= nullptr*/,
+	UINT *pRowPitch /*= nullptr*/,
+	UINT *pSlicePitch /*= nullptr*/
 )
 {
-	DWORD Size = pPixelContainer->Size;
-	xbox::X_D3DFORMAT X_Format = GetXboxPixelContainerFormat(pPixelContainer);
+	const DWORD Size = pPixelContainer->Size;
+	const xbox::X_D3DFORMAT X_Format = GetXboxPixelContainerFormat(pPixelContainer);
 
+	UINT depth, width, height, rowPitch;
 	if (Size != 0)
 	{
-		*pDepth = 1;
-		*pWidth = ((Size & X_D3DSIZE_WIDTH_MASK) /* >> X_D3DSIZE_WIDTH_SHIFT*/) + 1;
-		*pHeight = ((Size & X_D3DSIZE_HEIGHT_MASK) >> X_D3DSIZE_HEIGHT_SHIFT) + 1;
-		*pRowPitch = (((Size & X_D3DSIZE_PITCH_MASK) >> X_D3DSIZE_PITCH_SHIFT) + 1) * X_D3DTEXTURE_PITCH_ALIGNMENT;
+		depth = 1;
+		width = ((Size & X_D3DSIZE_WIDTH_MASK) /* >> X_D3DSIZE_WIDTH_SHIFT*/) + 1;
+		height = ((Size & X_D3DSIZE_HEIGHT_MASK) >> X_D3DSIZE_HEIGHT_SHIFT) + 1;
+		rowPitch = (((Size & X_D3DSIZE_PITCH_MASK) >> X_D3DSIZE_PITCH_SHIFT) + 1) * X_D3DTEXTURE_PITCH_ALIGNMENT;
 	}
 	else
 	{
-		DWORD l2w = (pPixelContainer->Format & X_D3DFORMAT_USIZE_MASK) >> X_D3DFORMAT_USIZE_SHIFT;
-		DWORD l2h = (pPixelContainer->Format & X_D3DFORMAT_VSIZE_MASK) >> X_D3DFORMAT_VSIZE_SHIFT;
-		DWORD l2d = (pPixelContainer->Format & X_D3DFORMAT_PSIZE_MASK) >> X_D3DFORMAT_PSIZE_SHIFT;
-		DWORD dwBPP = EmuXBFormatBitsPerPixel(X_Format);
+		const DWORD l2w = (pPixelContainer->Format & X_D3DFORMAT_USIZE_MASK) >> X_D3DFORMAT_USIZE_SHIFT;
+		const DWORD l2h = (pPixelContainer->Format & X_D3DFORMAT_VSIZE_MASK) >> X_D3DFORMAT_VSIZE_SHIFT;
+		const DWORD l2d = (pPixelContainer->Format & X_D3DFORMAT_PSIZE_MASK) >> X_D3DFORMAT_PSIZE_SHIFT;
+		const DWORD dwBPP = EmuXBFormatBitsPerPixel(X_Format);
 
-		*pDepth = 1 << l2d;
-		*pHeight = 1 << l2h;
-		*pWidth = 1 << l2w;
-		*pRowPitch = (*pWidth) * dwBPP / 8;
+		depth = 1 << l2d;
+		height = 1 << l2h;
+		width = 1 << l2w;
+		rowPitch = width * dwBPP / 8;
 	}
 
-	*pSlicePitch = (*pRowPitch) * (*pHeight);
+	// Calculated before the multiplication below deliberately!
+	const UINT slicePitch = rowPitch * height;
 
 	if (EmuXBFormatIsCompressed(X_Format)) {
-		*pRowPitch *= 4;
+		rowPitch *= 4;
 	}
+
+	if (pWidth != nullptr) *pWidth = width;
+	if (pHeight != nullptr) *pHeight = height;
+	if (pDepth != nullptr) *pDepth = depth;
+	if (pRowPitch != nullptr) *pRowPitch = rowPitch;
+	if (pSlicePitch != nullptr) *pSlicePitch = slicePitch;
 }
 
 void GetSurfaceFaceAndLevelWithinTexture(xbox::X_D3DSurface* pSurface, xbox::X_D3DBaseTexture* pTexture, UINT& Level, D3DCUBEMAP_FACES& Face)
@@ -1419,14 +1427,9 @@ void GetSurfaceFaceAndLevelWithinTexture(xbox::X_D3DSurface* pSurface, xbox::X_D
     int numLevels = CxbxGetPixelContainerMipMapLevels(pTexture);
     int numFaces = pTexture->Format & X_D3DFORMAT_CUBEMAP ? 6 : 1;
 
-    CxbxGetPixelContainerMipMapLevels(pTexture);
-
     // First, we need to fetch the dimensions of both the surface and the texture, for use within our calculations
-    UINT textureWidth, textureHeight, textureDepth, textureRowPitch, textureSlicePitch;
-    CxbxGetPixelContainerMeasures(pTexture, 0, &textureWidth, &textureHeight, &textureDepth, &textureRowPitch, &textureSlicePitch);
-
-    UINT surfaceWidth, surfaceHeight, surfaceDepth, surfaceRowPitch, surfaceSlicePitch;
-    CxbxGetPixelContainerMeasures(pSurface, 0, &surfaceWidth, &surfaceHeight, &surfaceDepth, &surfaceRowPitch, &surfaceSlicePitch);
+    UINT textureWidth, textureHeight, textureDepth, textureRowPitch;
+    CxbxGetPixelContainerMeasures(pTexture, 0, &textureWidth, &textureHeight, &textureDepth, &textureRowPitch);
 
     // Iterate through all faces and levels, until we find a matching pointer
     bool isCompressed = EmuXBFormatIsCompressed(GetXboxPixelContainerFormat(pTexture));
@@ -1567,13 +1570,13 @@ uint8_t *ConvertD3DTextureToARGB(
 	if (ConvertRowToARGB == nullptr)
 		return nullptr; // Unhandled conversion
 
-	unsigned int SrcDepth, SrcRowPitch, SrcSlicePitch;
+	UINT SrcRowPitch, SrcSlicePitch;
 	CxbxGetPixelContainerMeasures(
 		pXboxPixelContainer,
 		0, // dwMipMapLevel
 		(UINT*)pWidth,
 		(UINT*)pHeight,
-		&SrcDepth,
+		nullptr,
 		&SrcRowPitch,
 		&SrcSlicePitch
 	);
@@ -4988,11 +4991,11 @@ xbox::dword_xt WINAPI xbox::EMUPATCH(D3DDevice_Swap)
 
 			// Blit Xbox overlay to host backbuffer
 			uint8_t *pOverlayData = (uint8_t*)GetDataFromXboxResource(&g_OverlayProxy.Surface);
-			UINT OverlayWidth, OverlayHeight, OverlayDepth, OverlayRowPitch, OverlaySlicePitch;
+			UINT OverlayWidth, OverlayHeight, OverlayRowPitch;
 			CxbxGetPixelContainerMeasures(
 				&g_OverlayProxy.Surface,
 				0, // dwMipMapLevel
-				&OverlayWidth, &OverlayHeight, &OverlayDepth, &OverlayRowPitch, &OverlaySlicePitch);
+				&OverlayWidth, &OverlayHeight, nullptr, &OverlayRowPitch);
 
             RECT EmuSourRect = { 0 };
             RECT EmuDestRect = { 0 };
@@ -5472,13 +5475,13 @@ void CreateHostResource(xbox::X_D3DResource *pResource, DWORD D3DUsage, int iTex
 		bool bCubemap = pPixelContainer->Format & X_D3DFORMAT_CUBEMAP;
 		bool bSwizzled = EmuXBFormatIsSwizzled(X_Format);
 		bool bCompressed = EmuXBFormatIsCompressed(X_Format);
-		DWORD dwMinSize = (bCompressed) ? 4 : 1;
+		const DWORD dwMinSize = (bCompressed) ? 4 : 1;
 		UINT dwBPP = EmuXBFormatBytesPerPixel(X_Format);
 		UINT dwMipMapLevels = CxbxGetPixelContainerMipMapLevels(pPixelContainer);
-		UINT dwWidth, dwHeight, dwDepth, dwRowPitch, dwSlicePitch;
+		UINT dwWidth, dwHeight, dwDepth, dwRowPitch;
 
 		// Interpret Width/Height/BPP
-		CxbxGetPixelContainerMeasures(pPixelContainer, 0, &dwWidth, &dwHeight, &dwDepth, &dwRowPitch, &dwSlicePitch);
+		CxbxGetPixelContainerMeasures(pPixelContainer, 0, &dwWidth, &dwHeight, &dwDepth, &dwRowPitch);
 
 		// Each mip-map level is 1/2 the size of the previous level
 		// D3D9 forbids creation of a texture with more mip-map levels than it is divisible
